@@ -2073,6 +2073,21 @@ class H2OXGBoostEstimator(H2OEstimator):
         self._parms["gpu_id"] = gpu_id
 
 
+    @property
+    def gainslift_bins(self):
+        """
+        Gains/Lift table number of bins. 0 means disabled.. Default value -1 means automatic binning.
+
+        Type: ``int``  (default: ``-1``).
+        """
+        return self._parms.get("gainslift_bins")
+
+    @gainslift_bins.setter
+    def gainslift_bins(self, gainslift_bins):
+        assert_is_type(gainslift_bins, None, int)
+        self._parms["gainslift_bins"] = gainslift_bins
+
+
     @staticmethod
     def available():
         """
