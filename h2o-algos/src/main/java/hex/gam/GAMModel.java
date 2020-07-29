@@ -267,10 +267,6 @@ public class GAMModel extends Model<GAMModel, GAMModel.GAMParameters, GAMModel.G
 
     public long _seed = -1;
 
-    public enum BSType {
-      cr  // will support more in the future
-    }
-
     public InteractionSpec interactionSpec() {
       return InteractionSpec.create(_interactions, _interaction_pairs);
     }
@@ -345,7 +341,6 @@ public class GAMModel extends Model<GAMModel, GAMModel.GAMParameters, GAMModel.G
     public TwoDimTable _glm_model_summary;
     public ModelMetrics _glm_training_metrics;
     public ModelMetrics _glm_validation_metrics;
-    public ModelMetrics _glm_cross_validation_metrics;
     public double _glm_dispersion;
     public double[] _glm_zvalues;
     public double[] _glm_pvalues;
@@ -356,9 +351,6 @@ public class GAMModel extends Model<GAMModel, GAMModel.GAMParameters, GAMModel.G
     public TwoDimTable _coefficients_table;
     public TwoDimTable _coefficients_table_no_centering;
     public TwoDimTable _standardized_coefficient_magnitudes;
-    public int _best_lambda_idx; // lambda which minimizes deviance on validation (if provided) or train (if not)
-    public int _lambda_1se = -1; // lambda_best + sd(lambda); only applicable if running lambda search with nfold
-    public int _selected_lambda_idx; // lambda which minimizes deviance on validation (if provided) or train (if not)
     public double[] _model_beta_no_centering; // coefficients generated during model training
     public double[] _standardized_model_beta_no_centering; // standardized coefficients generated during model training
     public double[] _model_beta; // coefficients generated during model training
@@ -367,9 +359,6 @@ public class GAMModel extends Model<GAMModel, GAMModel.GAMParameters, GAMModel.G
     public double[][] _standardized_model_beta_multinomial_no_centering;  // store standardized multinomial coefficients during model training
     public double[][] _model_beta_multinomial;  // store multinomial coefficients during model training
     public double[][] _standardized_model_beta_multinomial;  // store standardized multinomial coefficients during model training
-    private double[] _zvalues;
-    private double _dispersion;
-    private boolean _dispersionEstimated;
     public String[][] _gamColNames; // store gam column names after transformation and decentering
     public double[][][] _zTranspose; // Z matrix for de-centralization, can be null
     public double[][][] _penaltyMatrices_center; // stores t(Z)*t(D)*Binv*D*Z and can be null
@@ -382,18 +371,17 @@ public class GAMModel extends Model<GAMModel, GAMModel.GAMParameters, GAMModel.G
     public String[] _responseDomains;
     public String _gam_transformed_center_key;
     final Family _family;
-    String[] _featureNames;
     
-    public double dispersion(){ return _dispersion;}
-
     @Override
     public int nclasses() {
-      if (_family == Family.multinomial || _family == Family.ordinal)
+      if (_family == Family.multinomial || _family == Family.ordinal) {
         return super.nclasses();
-      if (Family.binomial == _family || Family.quasibinomial == _family
-              || Family.fractionalbinomial == _family)
+      } else if (Family.binomial == _family || Family.quasibinomial == _family
+              || Family.fractionalbinomial == _family) {
         return 2;
-      return 1;
+      } else {
+        return 1;
+      }
     }
 
     /** Names of levels for a categorical response column. */
@@ -410,34 +398,13 @@ public class GAMModel extends Model<GAMModel, GAMModel.GAMParameters, GAMModel.G
     public GAMModelOutput(GAM b, Frame adaptr, DataInfo dinfo) {
       super(b, adaptr);
       _dinfo = dinfo;
-      final int numColumns = b._parms._gam_columns.length + (b._parms.train().numCols() - b._parms._ignored_columns.length - 1);
-
-      final Set<String> names = new HashSet(b._parms.train().names().length);
-      for (String name: b._parms.train().names()){
-        names.add(name);
-      }
-      for(String ignored : b._parms._ignored_columns){
-        names.remove(ignored);
-      }
-      names.remove(b._parms._response_column);
-
-      _featureNames = new String[numColumns];
-      
-      int i = 0;
-      for (String name : names){
-        _featureNames[i++] = name;
-      }
-      
-      for (int j = 0; j < b._parms._gam_columns.length; j++) {
-        _featureNames[i++] = b._parms._gam_columns[j];
-      }
-      
       _domains = dinfo._adaptedFrame.domains(); // get domain of dataset predictors
       _family = b._parms._family;
       if (_family.equals(Family.quasibinomial)) {
         _responseDomains = new VecUtils.CollectDoubleDomain(null, 2).doAll(dinfo._adaptedFrame.vec(b._parms._response_column)).stringDomain(dinfo._adaptedFrame.vec(b._parms._response_column).isInt());
-      } else
+      } else {
         _responseDomains = dinfo._adaptedFrame.lastVec().domain();
+      }
     }
 
     @Override public ModelCategory getModelCategory() {
@@ -476,8 +443,9 @@ public class GAMModel extends Model<GAMModel, GAMModel.GAMParameters, GAMModel.G
       for (int index = 0; index < adaptNumCols; index++)
         test.add(adptedF.name(index), adptedF.vec(index));
       return super.adaptTestForTrain(test, expensive, computeMetrics);
+    } else {
+      return super.adaptTestForTrain(test, expensive, computeMetrics);
     }
-    return super.adaptTestForTrain(test, expensive, computeMetrics);
   }
 
   public Frame cleanUpInputFrame(Frame test) {
@@ -554,15 +522,14 @@ public class GAMModel extends Model<GAMModel, GAMModel.GAMParameters, GAMModel.G
     private double[][] _coeffs_multinomial;
     private int _nclass;
     private boolean _computeMetrics;
-    final Job _j;
-    Family _family;
+    private final Job _j;
+    private Family _family;
     private transient double[] _eta;  // store eta calculation
     private String[] _predDomains;
-    final GAMModel _m;
+    private final GAMModel _m;
     private final double _defaultThreshold;
     private int _lastClass;
-    ModelMetrics.MetricBuilder _mb;
-    final boolean _sparse;
+    private ModelMetrics.MetricBuilder _mb;
     private transient double[][] _vcov;
     private transient double[] _tmp;
     private boolean _classifier2class;
@@ -572,7 +539,6 @@ public class GAMModel extends Model<GAMModel, GAMModel.GAMParameters, GAMModel.G
       _j = j;
       _m = m;
       _computeMetrics = computeMetrics;
-      _sparse = FrameUtils.sparseRatio(dinfo._adaptedFrame) < .5;
       _predDomains = domain;
       _m._parms = m._parms;
       _nclass = m._output.nclasses();

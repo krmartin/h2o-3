@@ -222,7 +222,10 @@ public abstract class AbstractMojoWriter {
       writelnkv(kv.getKey(), kv.getValue());
     }
 
-    writeNames();
+    writeln("\n[columns]");
+    for (String name : model.columnNames()) {
+      writeln(name);
+    }
 
     writeln("\n[domains]");
     String format = "%d: %d d%03d.txt";
@@ -233,13 +236,6 @@ public abstract class AbstractMojoWriter {
         writeln(String.format(format, colIndex, domains[colIndex].length, domIndex++));
     }
     finishWritingTextFile();
-  }
-
-  protected void writeNames() {
-    writeln("\n[columns]");
-    for (String name : model.columnNames()) {
-      writeln(name);
-    }
   }
 
   /**
