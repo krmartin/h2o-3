@@ -257,6 +257,8 @@ public class GAMModel extends Model<GAMModel, GAMModel.GAMParameters, GAMModel.G
     public String algoName() { return "GAM"; }
     public String fullName() { return "Generalized Additive Model"; }
     public String javaName() { return GAMModel.class.getName(); }
+    public int _nlambdas = -1;
+    
 
     @Override
     public long progressUnits() {
