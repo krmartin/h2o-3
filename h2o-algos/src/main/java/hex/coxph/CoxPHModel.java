@@ -16,10 +16,8 @@ import water.util.ArrayUtils;
 import water.util.IcedHashMap;
 import water.util.IcedInt;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 public class CoxPHModel extends Model<CoxPHModel,CoxPHParameters,CoxPHOutput> {
 
@@ -267,15 +265,122 @@ public class CoxPHModel extends Model<CoxPHModel,CoxPHParameters,CoxPHOutput> {
   }
 
   @Override
-  protected Frame predictScoreImpl(Frame fr, Frame adaptFrm, String destination_key, Job j, boolean computeMetrics, CFuncRef customMetricFunc) {
+  protected Frame predictScoreImpl(Frame fr, Frame adaptFrm, String destination_key, Job job, boolean computeMetrics, CFuncRef customMetricFunc) {
     int nResponses = 0;
     for (String col : _parms.responseCols())
       if (adaptFrm.find(col) != -1)
         nResponses++;
+      
     DataInfo scoringInfo = _output.data_info.scoringInfo(_output._names, adaptFrm, nResponses, false);
-    return new CoxPHScore(scoringInfo, _output, _parms.isStratified())
-            .doAll(Vec.T_NUM, scoringInfo._adaptedFrame)
-            .outputFrame(Key.<Frame>make(destination_key), new String[]{"lp"}, null);
+
+    CoxPHScore score = new CoxPHScore(scoringInfo, _output, _parms.isStratified());
+    final Frame scored = score
+                         .doAll(Vec.T_NUM, scoringInfo._adaptedFrame)
+                         .outputFrame(Key.<Frame>make(destination_key), new String[]{"lp"}, null);
+
+    concordance(fr, adaptFrm, scored);
+
+    return scored;
+  }
+
+  private void concordance(Frame fr, Frame adaptFrm, Frame scored) {
+    final Vec startVec = _input_parms.startVec();
+    final Vec stopVec = _input_parms.stopVec();
+    final Vec statusVec = adaptFrm.lastVec();
+    final Vec estimateVec = scored.lastVec();
+
+    final List<Vec> strataVecs = 
+            _input_parms.isStratified() ? 
+                    Arrays.asList( _input_parms._stratify_by).stream().map(s -> fr.vec(s) ).collect(Collectors.toList()) : 
+                    Collections.emptyList();
+
+    concordance(startVec, stopVec, statusVec, strataVecs, estimateVec);
+  }
+
+  static private boolean isValidComparison(double time1, double time2, boolean event1, boolean event2) {
+    if (time1 == time2) {
+      return event1 != event2;
+    }
+    if (event1 && event2) {
+      return true;
+    }
+    if (event1 && time1 < time2) {
+      return true;
+    }
+    if (event2 &&  time2 < time1) {
+      return true;
+    }
+    return false;
+  }
+
+  static double concordance(final Vec startVec, final Vec stopVec, final Vec eventVec, List<Vec> strataVecs, final Vec estimateVec) {
+   
+    long ntotals = 0;
+    long nNotNaN = 0;
+    long nconcordant = 0;
+    long nties = 0;
+
+    long totals = 0;
+
+    final long length = estimateVec.length();
+    
+    for (long i = 0; i < length; i++) {
+      for (long j = i+1; j < length; j++) {
+        
+        final double t1 = stopVec.at(i) - ((startVec != null) ? startVec.at(i) : 0d);
+        final double t2 = stopVec.at(j) - ((startVec != null) ? startVec.at(j) : 0d);
+        
+        final long event1 = eventVec.at8(i);
+        final long event2 = eventVec.at8(j);
+        final double estimate1 = estimateVec.at(i);
+        final double estimate2 = estimateVec.at(j);
+        
+        final long fi = i;
+        final long fj = j;
+
+        boolean sameStrata = strataVecs.stream().allMatch(v -> v.stringAt(fi).equals(v.stringAt(fj)));
+        
+        boolean censored1 = 0 == event1;
+        boolean censored2 = 0 == event2;
+        
+        totals++;
+
+        if (!Double.isNaN(t1) && !Double.isNaN(t2) && !Double.isNaN(estimate1) && !Double.isNaN(estimate2)) {
+          nNotNaN++;
+        } else {
+          continue;
+        }
+        
+        if (sameStrata && isValidComparison(t1, t2, !censored1, !censored2)) {
+          ntotals++;
+          if (estimate1 == estimate2) {
+            nties++;
+          } else if (estimate1 > estimate2) {
+            if ((t1 < t2) || (t1 == t2 && !censored1 && censored2)) {
+              nconcordant++;
+            }
+          } else {
+            if ((t1 > t2) || (t1 == t2 && censored1 && !censored2)) {
+              nconcordant++;
+            }
+          }
+        }
+      }
+    }
+
+    System.out.println("nties = " + nties);
+    System.out.println("nconcordant = " + nconcordant);
+    System.out.println("ndiscordant = " + (ntotals - nconcordant - nties));
+    System.out.println("ntotals = " + ntotals);
+
+    assert nNotNaN <= totals;
+    assert ntotals <= totals;
+    assert nconcordant <= totals;
+
+    double c = (nconcordant + 0.5d * nties) / ntotals;
+    System.out.println("c = " + c);
+    
+    return c;
   }
 
   @Override

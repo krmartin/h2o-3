@@ -13,6 +13,12 @@ test.CoxPH.predict <- function() {
     tstdata <- cancer
     tstdata$sex <- as.factor(tstdata$sex)
     tstdataHex <- as.h2o(tstdata)
+    tstdataHex$status <- tstdataHex$status == 2
+    
+    print(summary(tstdata))
+ 
+
+    print(head(tstdata))
     
     rModel <- coxph(Surv(time, status) ~ age + sex + meal.cal + age:meal.cal, data = tstdata, ties = "efron")
     rPredictor <- rModel$linear.predictors
@@ -22,13 +28,15 @@ test.CoxPH.predict <- function() {
     
     expect_equal(rPredictor, hexPredictor, scale = 1, tolerance = 1e-3)
     
-    rConcordance <- unname(summary(rModel)$concordance)[1]
-    
     print(hexModel)
 
+    rConcordance <- unname(summary(rModel)$concordance)[1]
     hexConcordance <- hexModel@model$concordance
     print(hexConcordance)
     print(rConcordance)
+    
+    print("------------------------")
+    print(summary(rModel))
     
     expect_equal(rConcordance, hexConcordance)
 }

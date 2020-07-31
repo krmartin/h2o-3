@@ -9,6 +9,7 @@ import water.fvec.TestFrameBuilder;
 import water.fvec.Vec;
 import water.util.RandomUtils;
 
+import java.util.Collections;
 import java.util.Random;
 
 import static hex.coxph.CoxPHModel.concordance;
@@ -30,7 +31,6 @@ public class CoxPHModelTest extends TestUtil {
             }
         }, 1.0d, 0.0001d);
     }
-
 
     @Test
     public void concordanceOfATerribleEstimateIsZero() {
@@ -56,95 +56,36 @@ public class CoxPHModelTest extends TestUtil {
         }, 0.5d, 0.01d); 
     }
 
-    private void checkConcordanceForEstimate(MRTask estimateTask, double expected, double delta) {
-        try {
-            Scope.enter();
-            final int len = 2000;
-
-            Vec starts = Scope.track(Vec.makeCon(0.0, len));
-            Vec times = Scope.track(Vec.makeCon(0.0, len).makeRand(0));
-            Vec status = Scope.track(Vec.makeOne(len, Vec.T_CAT));
-
-            new MRTask() {
-                @Override
-                public void map(Chunk c) {
-                    for (int i = 0; i < c._len; ++i) {
-                        c.set(i, 1L);
-                    }
-                }
-            }.doAll(status);
-
-            Frame aFrame = Scope.track(new Frame(new String[]{"starts", "times", "status"}, new Vec[]{starts, times, status}));
-            Vec estimates = Scope.track(times.doCopy());
-            Key<Vec> estimatesKey = estimates._key;
-            DKV.put(estimatesKey, estimates);
-            Scope.track(estimates);
-
-            estimateTask.doAll(estimates);
-
-            Frame scored = Scope.track(new Frame(estimates));
-
-            final double c = concordance(aFrame, scored);
-
-            assertEquals(expected, c, delta);
-        } finally {
-            Scope.exit();
-        }
-    }
-
     @Test
     public void concordanceExampleOneBadEstimate() throws Exception {
         try {
             Scope.enter();
-            final Frame aFrame = Scope.track(new TestFrameBuilder()
-                    .withName("testFrame")
-                    .withColNames("Start", "Time", "Status")
-                    .withVecTypes(Vec.T_NUM, Vec.T_NUM, Vec.T_NUM)
-                    .withDataForCol(0, ard(0, 0, 0, 0, 0, 0, 0))
-                    .withDataForCol(1, ard(0, 1, 2, 3, 4, 5, 6))
-                    .withDataForCol(2, ard(1, 1, 1, 1, 1, 1, 1))
-                    .withChunkLayout(7)
-                    .build()); 
+            final Vec starts = Scope.track(Vec.makeVec(new double[] {0d, 0d, 0d, 0d, 0d, 0d, 0d}, Vec.newKey()));
+            final Vec stops = Scope.track(Vec.makeVec(new double[] {0d, 1d, 2d, 3d, 4d, 5d, 6d}, Vec.newKey()));
+            final Vec status = Scope.track(Vec.makeVec(new double[] {1d, 1d, 1d, 1d, 1d, 1d, 1d}, Vec.newKey()));
+            final Vec estimates = Scope.track(Vec.makeVec(new double[] {6d, 5d, 4d, 3d, 2d, 0d, 1d}, Vec.newKey()));
             
-            final Frame scored = Scope.track(new TestFrameBuilder()
-                    .withName("estimateFrame")
-                    .withColNames("est")
-                    .withVecTypes(Vec.T_NUM)
-                    .withDataForCol(0, ard(6, 5, 4, 3, 2, 0, 1))
-                    .build());
-
-            final double c = concordance(aFrame, scored);
-            final double pairCount = scored.numRows() * (scored.numRows() - 1) / 2d;
+            final double c = concordance(starts, stops, status, Collections.emptyList(), estimates);
+            
+            final double pairCount = starts.length() * (starts.length() - 1) / 2d;
             assertEquals((pairCount - 1) / pairCount, c, 0.01);
-
         } finally {
             Scope.exit();
         }
     }
-    
+
     @Test
     public void concordanceExampleMoreBadEstimates() throws Exception {
         try {
             Scope.enter();
-            final Frame aFrame = Scope.track(new TestFrameBuilder()
-                    .withName("testFrame")
-                    .withColNames("Start", "Time", "Status")
-                    .withVecTypes(Vec.T_NUM, Vec.T_NUM, Vec.T_NUM)
-                    .withDataForCol(0, ard(0, 0, 0, 0, 0, 0, 0))
-                    .withDataForCol(1, ard(0, 1, 2, 3, 4, 5, 6))
-                    .withDataForCol(2, ard(1, 1, 1, 1, 1, 1, 1))
-                    .withChunkLayout(7)
-                    .build()); 
-            
-            final Frame scored = Scope.track(new TestFrameBuilder()
-                    .withName("estimateFrame")
-                    .withColNames("est")
-                    .withVecTypes(Vec.T_NUM)
-                    .withDataForCol(0, ard(6, 5, 4, 3, 0, 1, 2))
-                    .build());
+            final Vec starts = null;
+            final Vec stops = Scope.track(Vec.makeVec(new double[] {0d, 1d, 2d, 3d, 4d, 5d, 6d}, Vec.newKey()));
+            final Vec status = Scope.track(Vec.makeVec(new double[] {1d, 1d, 1d, 1d, 1d, 1d, 1d}, Vec.newKey()));
+            final Vec estimates = Scope.track(Vec.makeVec(new double[] {6d, 5d, 4d, 3d, 0d, 1d, 2d}, Vec.newKey()));
 
-            final double c = concordance(aFrame, scored);
-            final double pairCount = scored.numRows() * (scored.numRows() - 1) / 2d;
+            final double c = concordance(starts, stops, status, Collections.emptyList(), estimates);
+
+            final double pairCount = stops.length() * (stops.length() - 1) / 2d;
             assertEquals((pairCount - 3) / pairCount, c, 0.01);
         } finally {
             Scope.exit();
@@ -155,29 +96,73 @@ public class CoxPHModelTest extends TestUtil {
     public void concordanceExampleOneTie() throws Exception {
         try {
             Scope.enter();
-            final Frame aFrame = Scope.track(new TestFrameBuilder()
-                    .withName("testFrame")
-                    .withColNames("Start", "Time", "Status")
-                    .withVecTypes(Vec.T_NUM, Vec.T_NUM, Vec.T_NUM)
-                    .withDataForCol(0, ard(0, 0, 0, 0, 0, 0, 0))
-                    .withDataForCol(1, ard(0, 1, 2, 3, 4, 5, 6))
-                    .withDataForCol(2, ard(1, 1, 1, 1, 1, 1, 1))
-                    .withChunkLayout(7)
-                    .build()); 
-            
-            final Frame scored = Scope.track(new TestFrameBuilder()
-                    .withName("estimateFrame")
-                    .withColNames("est")
-                    .withVecTypes(Vec.T_NUM)
-                    .withDataForCol(0, ard(6, 5, 4, 3, 2, 2, 0))
-                    .build());
+            final Vec starts = null;
+            final Vec stops = Scope.track(Vec.makeVec(new double[] {0d, 1d, 2d, 3d, 4d, 5d, 6d}, Vec.newKey()));
+            final Vec status = Scope.track(Vec.makeVec(new double[] {1d, 1d, 1d, 1d, 1d, 1d, 1d}, Vec.newKey()));
+            final Vec estimates = Scope.track(Vec.makeVec(new double[] {6d, 5d, 4d, 3d, 2d, 2d, 0d}, Vec.newKey()));
 
-            final double c = concordance(aFrame, scored);
-            final double pairCount = scored.numRows() * (scored.numRows() - 1) / 2d;
+            final double c = concordance(starts, stops, status, Collections.emptyList(), estimates);
+
+            final double pairCount = stops.length() * (stops.length() - 1) / 2d;
             assertEquals((pairCount - 0.5) / pairCount, c, 0.01);
         } finally {
             Scope.exit();
         }
     }
 
+    @Test
+    public void concordanceExampleOneTieWithNontrivialStarts() throws Exception {
+        try {
+            Scope.enter();
+            final Vec starts = Scope.track(Vec.makeVec(new double[] {0d, 1d, 2d, 3d, 4d, 5d, 6d}, Vec.newKey()));
+            final Vec stops = Scope.track(Vec.makeVec(new double[] {0d, 2d, 4d, 6d, 8d, 10d, 12d}, Vec.newKey()));
+            final Vec status = Scope.track(Vec.makeVec(new double[] {1d, 1d, 1d, 1d, 1d, 1d, 1d}, Vec.newKey()));
+            final Vec estimates = Scope.track(Vec.makeVec(new double[] {6d, 5d, 4d, 3d, 2d, 2d, 0d}, Vec.newKey()));
+
+            final double c = concordance(starts, stops, status, Collections.emptyList(), estimates);
+
+            final double pairCount = stops.length() * (stops.length() - 1) / 2d;
+            assertEquals((pairCount - 0.5) / pairCount, c, 0.01);
+        } finally {
+            Scope.exit();
+        }
+    }
+
+    private void checkConcordanceForEstimate(MRTask estimateTask, double expected, double delta) {
+        try {
+            Scope.enter();
+            final int len = 2000;
+
+            final Vec starts = Scope.track(Vec.makeCon(0.0, len));
+            final Vec times = Scope.track(Vec.makeCon(0.0, len).makeRand(0));
+            final Vec status = Scope.track(Vec.makeOne(len, Vec.T_CAT));
+
+            new MRTask() {
+                @Override
+                public void map(Chunk c) {
+                    for (int i = 0; i < c._len; ++i) {
+                        c.set(i, 1L);
+                    }
+                }
+            }.doAll(status);
+
+            final Vec estimates = prepareEstimates(estimateTask, times);
+
+            final double c = concordance(starts, times, status, Collections.emptyList(), estimates);
+
+            assertEquals(expected, c, delta);
+        } finally {
+            Scope.exit();
+        }
+    }
+
+    private Vec prepareEstimates(MRTask estimateTask, Vec times) {
+        Vec estimates = Scope.track(times.doCopy());
+        Key<Vec> estimatesKey = estimates._key;
+        DKV.put(estimatesKey, estimates);
+        Scope.track(estimates);
+
+        estimateTask.doAll(estimates);
+        return estimates;
+    }
 }
