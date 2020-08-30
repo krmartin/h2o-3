@@ -82,10 +82,13 @@
 #'        Defaults to family_default.
 #' @param prior Prior probability for y==1. To be used only for logistic regression iff the data has been sampled and the mean
 #'        of response does not reflect reality. Defaults to -1.
+#' @param cold_start \code{Logical}. Only applicable to multiple alpha/lambda values when calling GLM from GAM.  If false, build
+#'        the next model for next set of alpha/lambda values starting from the values provided by current model.  If
+#'        true will start GLM model from scratch. Defaults to FALSE.
 #' @param lambda_min_ratio Minimum lambda used in lambda search, specified as a ratio of lambda_max (the smallest lambda that drives all
 #'        coefficients to zero). Default indicates: if the number of observations is greater than the number of
 #'        variables, then lambda_min_ratio is set to 0.0001; if the number of observations is less than the number of
-#'        variables, then lambda_min_ratio is set to 0.01. Defaults to 0.
+#'        variables, then lambda_min_ratio is set to 0.01. Defaults to -1.
 #' @param beta_constraints Beta constraints
 #' @param max_active_predictors Maximum number of active predictors during computation. Use as a stopping criterion to prevent expensive model
 #'        building with many predictors. Default indicates: If the IRLSM solver is used, the value of
@@ -109,8 +112,7 @@
 #'        be automatically computed to obtain class balance during training. Requires balance_classes.
 #' @param max_after_balance_size Maximum relative size of the training data after balancing class counts (can be less than 1.0). Requires
 #'        balance_classes. Defaults to 5.0.
-#' @param max_hit_ratio_k Maximum number (top K) of predictions to use for hit ratio computation (for multi-class only, 0 to disable)
-#'        Defaults to 0.
+#' @param max_hit_ratio_k This argument is deprecated and has no use. Max. number (top K) of predictions to use for hit ratio computation (for multi-class only, 0 to disable).
 #' @param max_runtime_secs Maximum allowed runtime in seconds for model training. Use 0 to disable. Defaults to 0.
 #' @param custom_metric_func Reference to custom evaluation function, format: `language:keyName=funcName`
 #' @param num_knots Number of knots for gam predictors
@@ -171,7 +173,8 @@ h2o.gam <- function(x,
                     gradient_epsilon = -1,
                     link = c("family_default", "identity", "logit", "log", "inverse", "tweedie", "ologit"),
                     prior = -1,
-                    lambda_min_ratio = 0,
+                    cold_start = FALSE,
+                    lambda_min_ratio = -1,
                     beta_constraints = NULL,
                     max_active_predictors = -1,
                     interactions = NULL,
@@ -231,6 +234,7 @@ h2o.gam <- function(x,
   if( !missing(offset_column) && !is.null(offset_column))  args$x_ignore <- args$x_ignore[!( offset_column == args$x_ignore )]
   if( !missing(weights_column) && !is.null(weights_column)) args$x_ignore <- args$x_ignore[!( weights_column == args$x_ignore )]
   if( !missing(fold_column) && !is.null(fold_column)) args$x_ignore <- args$x_ignore[!( fold_column == args$x_ignore )]
+  if( !missing(gam_columns) && !is.null(gam_columns)) args$x_ignore <- args$x_ignore[!( args$x_ignore %in% gam_columns )]
   parms$ignored_columns <- args$x_ignore
   parms$response_column <- args$y
   parms$gam_columns <- gam_columns
@@ -303,6 +307,8 @@ h2o.gam <- function(x,
     parms$link <- link
   if (!missing(prior))
     parms$prior <- prior
+  if (!missing(cold_start))
+    parms$cold_start <- cold_start
   if (!missing(lambda_min_ratio))
     parms$lambda_min_ratio <- lambda_min_ratio
   if (!missing(max_active_predictors))
@@ -359,6 +365,10 @@ h2o.gam <- function(x,
     parms$beta_constraints <- beta_constraints
     if(!missing(missing_values_handling))
       parms$missing_values_handling <- missing_values_handling
+  if (!missing(max_hit_ratio_k)) {
+      warning("Argument max_hit_ratio_k is deprecated and has no use.")
+      parms$offset_column <- NULL
+  }    
 
   # Error check and build model
   model <- .h2o.modelJob('gam', parms, h2oRestApiVersion=3, verbose=FALSE)
@@ -410,7 +420,8 @@ h2o.gam <- function(x,
                                     gradient_epsilon = -1,
                                     link = c("family_default", "identity", "logit", "log", "inverse", "tweedie", "ologit"),
                                     prior = -1,
-                                    lambda_min_ratio = 0,
+                                    cold_start = FALSE,
+                                    lambda_min_ratio = -1,
                                     beta_constraints = NULL,
                                     max_active_predictors = -1,
                                     interactions = NULL,
@@ -477,6 +488,7 @@ h2o.gam <- function(x,
   if( !missing(offset_column) && !is.null(offset_column))  args$x_ignore <- args$x_ignore[!( offset_column == args$x_ignore )]
   if( !missing(weights_column) && !is.null(weights_column)) args$x_ignore <- args$x_ignore[!( weights_column == args$x_ignore )]
   if( !missing(fold_column) && !is.null(fold_column)) args$x_ignore <- args$x_ignore[!( fold_column == args$x_ignore )]
+  if( !missing(gam_columns) && !is.null(gam_columns)) args$x_ignore <- args$x_ignore[!( args$x_ignore %in% gam_columns )]
   parms$ignored_columns <- args$x_ignore
   parms$response_column <- args$y
   parms$gam_columns <- gam_columns
@@ -547,6 +559,8 @@ h2o.gam <- function(x,
     parms$link <- link
   if (!missing(prior))
     parms$prior <- prior
+  if (!missing(cold_start))
+    parms$cold_start <- cold_start
   if (!missing(lambda_min_ratio))
     parms$lambda_min_ratio <- lambda_min_ratio
   if (!missing(max_active_predictors))
@@ -603,6 +617,10 @@ h2o.gam <- function(x,
     parms$beta_constraints <- beta_constraints
     if(!missing(missing_values_handling))
       parms$missing_values_handling <- missing_values_handling
+  if (!missing(max_hit_ratio_k)) {
+      warning("Argument max_hit_ratio_k is deprecated and has no use.")
+      parms$offset_column <- NULL
+  }    
 
   # Build segment-models specific parameters
   segment_parms <- list()

@@ -1,3 +1,5 @@
+deprecated = ['max_hit_ratio_k']
+
 def update_param(name, param):
     if name == 'distribution':
         param['values'].remove('custom')
@@ -43,6 +45,7 @@ def class_extensions():
         ns = x.pop("coefficient_names")
         res = {
             "lambdas": x["lambdas"],
+            "alphas": x["alphas"],
             "explained_deviance_train": x["explained_deviance_train"],
             "explained_deviance_valid": x["explained_deviance_valid"],
             "coefficients": [dict(zip(ns, y)) for y in x["coefficients"]],

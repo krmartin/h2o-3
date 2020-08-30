@@ -36,11 +36,12 @@ class H2OGeneralizedAdditiveEstimator(H2OEstimator):
                    "solver", "alpha", "lambda_", "lambda_search", "early_stopping", "nlambdas", "standardize",
                    "missing_values_handling", "plug_values", "compute_p_values", "remove_collinear_columns",
                    "intercept", "non_negative", "max_iterations", "objective_epsilon", "beta_epsilon",
-                   "gradient_epsilon", "link", "prior", "lambda_min_ratio", "beta_constraints", "max_active_predictors",
-                   "interactions", "interaction_pairs", "obj_reg", "export_checkpoints_dir", "stopping_rounds",
-                   "stopping_metric", "stopping_tolerance", "balance_classes", "class_sampling_factors",
-                   "max_after_balance_size", "max_confusion_matrix_size", "max_hit_ratio_k", "max_runtime_secs",
-                   "custom_metric_func", "num_knots", "knot_ids", "gam_columns", "bs", "scale", "keep_gam_cols"}
+                   "gradient_epsilon", "link", "prior", "cold_start", "lambda_min_ratio", "beta_constraints",
+                   "max_active_predictors", "interactions", "interaction_pairs", "obj_reg", "export_checkpoints_dir",
+                   "stopping_rounds", "stopping_metric", "stopping_tolerance", "balance_classes",
+                   "class_sampling_factors", "max_after_balance_size", "max_confusion_matrix_size", "max_hit_ratio_k",
+                   "max_runtime_secs", "custom_metric_func", "num_knots", "knot_ids", "gam_columns", "bs", "scale",
+                   "keep_gam_cols"}
 
     def __init__(self, **kwargs):
         super(H2OGeneralizedAdditiveEstimator, self).__init__()
@@ -646,6 +647,23 @@ class H2OGeneralizedAdditiveEstimator(H2OEstimator):
 
 
     @property
+    def cold_start(self):
+        """
+        Only applicable to multiple alpha/lambda values when calling GLM from GAM.  If false, build the next model for
+        next set of alpha/lambda values starting from the values provided by current model.  If true will start GLM
+        model from scratch.
+
+        Type: ``bool``  (default: ``False``).
+        """
+        return self._parms.get("cold_start")
+
+    @cold_start.setter
+    def cold_start(self, cold_start):
+        assert_is_type(cold_start, None, bool)
+        self._parms["cold_start"] = cold_start
+
+
+    @property
     def lambda_min_ratio(self):
         """
         Minimum lambda used in lambda search, specified as a ratio of lambda_max (the smallest lambda that drives all
@@ -653,7 +671,7 @@ class H2OGeneralizedAdditiveEstimator(H2OEstimator):
         then lambda_min_ratio is set to 0.0001; if the number of observations is less than the number of variables, then
         lambda_min_ratio is set to 0.01.
 
-        Type: ``float``  (default: ``0``).
+        Type: ``float``  (default: ``-1``).
         """
         return self._parms.get("lambda_min_ratio")
 
@@ -869,7 +887,8 @@ class H2OGeneralizedAdditiveEstimator(H2OEstimator):
     @property
     def max_hit_ratio_k(self):
         """
-        Maximum number (top K) of predictions to use for hit ratio computation (for multi-class only, 0 to disable)
+        [Deprecated] Maximum number (top K) of predictions to use for hit ratio computation (for multi-class only, 0 to
+        disable)
 
         Type: ``int``  (default: ``0``).
         """
@@ -1009,3 +1028,9 @@ class H2OGeneralizedAdditiveEstimator(H2OEstimator):
     @Lambda.setter
     def Lambda(self, value):
         self._parms["lambda"] = value
+
+    def _additional_used_columns(self, parms):
+        """
+        :return: Gam columns if specified.
+        """
+        return parms["gam_columns"]

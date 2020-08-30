@@ -19,6 +19,7 @@ import water.fvec.Frame;
 import water.fvec.Vec;
 import water.util.Log;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -100,17 +101,15 @@ public class H2ORunner extends BlockJUnit4ClassRunner {
             return;
         }
 
-        printLeakedKeys(checkKeysTask.leakedKeys);
+        printLeakedKeys(checkKeysTask.leakedKeys, checkKeysTask.leakInfos);
         throw new IllegalStateException(String.format("Test method '%s.%s' leaked %d keys.", description.getTestClass().getName(), description.getMethodName(), checkKeysTask.leakedKeys.length));
     }
 
 
-    private void printLeakedKeys(final Key[] leakedKeys) {
+    private void printLeakedKeys(final Key[] leakedKeys, final CheckKeysTask.LeakInfo[] leakInfos) {
         final Set<Key> leakedKeysSet = new HashSet<>(leakedKeys.length);
 
-        for (Key k : leakedKeys) {
-            leakedKeysSet.add(k);
-        }
+        leakedKeysSet.addAll(Arrays.asList(leakedKeys));
 
         for (Key key : leakedKeys) {
 
@@ -149,6 +148,10 @@ public class H2ORunner extends BlockJUnit4ClassRunner {
         for (Key key : leakedKeysSet) {
             Log.err(String.format("Key '%s' of type %s.", key.toString(), key.valueClass()));
         }
+
+        for (CheckKeysTask.LeakInfo leakInfo : leakInfos) {
+            Log.err(String.format("Leak info for key '%s': %s", leakedKeys[leakInfo._keyIdx], leakInfo));
+        }
     }
 
 
@@ -173,8 +176,9 @@ public class H2ORunner extends BlockJUnit4ClassRunner {
         
         final boolean isConfiguredAsIgnored = this.ignoreTestsNames.contains(testName);
         final boolean isConfiguredAsDoOnly = this.doOnlyTestNames.contains(testName);
-        
-        return isAnnotatedAsIgnored || (isConfiguredAsIgnored && !isConfiguredAsDoOnly);
+
+        return isAnnotatedAsIgnored || (isConfiguredAsIgnored && !isConfiguredAsDoOnly) 
+                || (!this.doOnlyTestNames.isEmpty() && !isConfiguredAsDoOnly);
     }
 
     private void createTestFilters() {

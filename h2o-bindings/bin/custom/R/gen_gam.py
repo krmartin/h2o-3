@@ -22,6 +22,7 @@ extensions = dict(
     if( !missing(offset_column) && !is.null(offset_column))  args$x_ignore <- args$x_ignore[!( offset_column == args$x_ignore )]
     if( !missing(weights_column) && !is.null(weights_column)) args$x_ignore <- args$x_ignore[!( weights_column == args$x_ignore )]
     if( !missing(fold_column) && !is.null(fold_column)) args$x_ignore <- args$x_ignore[!( fold_column == args$x_ignore )]
+    if( !missing(gam_columns) && !is.null(gam_columns)) args$x_ignore <- args$x_ignore[!( args$x_ignore %in% gam_columns )]
     parms$ignored_columns <- args$x_ignore
     parms$response_column <- args$y
     parms$gam_columns <- gam_columns
@@ -64,6 +65,10 @@ extensions = dict(
       parms$beta_constraints <- beta_constraints
       if(!missing(missing_values_handling))
         parms$missing_values_handling <- missing_values_handling
+    if (!missing(max_hit_ratio_k)) {
+        warning("Argument max_hit_ratio_k is deprecated and has no use.")
+        parms$offset_column <- NULL
+    }    
     """,
 
 )
@@ -84,5 +89,8 @@ doc = dict(
     prostate$CAPSULE <- as.factor(prostate$CAPSULE)
     h2o.gam(y = "CAPSULE", x = c("RACE"), gam_columns = c("PSA"),
          training_frame = prostate, family = "binomial")
-    """
+    """,
+    params=dict(
+        max_hit_ratio_k="This argument is deprecated and has no use. Max. number (top K) of predictions to use for hit ratio computation (for multi-class only, 0 to disable)."
+    )
 )
