@@ -1171,7 +1171,7 @@ public class TestUtil extends Iced {
    * @param columnName column's name to be factorized
    * @return Frame with factorized column
    */
-  public Frame asFactor(Frame frame, String columnName) {
+  public static Frame asFactor(Frame frame, String columnName) {
     Vec vec = frame.vec(columnName);
     frame.replace(frame.find(columnName), vec.toCategoricalVec());
     vec.remove();
@@ -1318,6 +1318,21 @@ public class TestUtil extends Iced {
         outStream.write(buffer, 0, bytesRead);
       }
     }
+  }
+
+  /**
+   * @param len        Length of the resulting vector
+   * @param randomSeed Seed for the random generator (for reproducibility)
+   * @return An instance of {@link Vec} with binary weights (either 0.0D or 1.0D, nothing in between).
+   */
+  public Vec createRandomBinaryWeightsVec(final long len, final int randomSeed) {
+    final Vec weightsVec = Vec.makeZero(len, Vec.T_NUM);
+    final Random random = new Random(randomSeed);
+    for (int i = 0; i < weightsVec.length(); i++) {
+      weightsVec.set(i, random.nextBoolean() ? 1.0D : 0D);
+    }
+
+    return weightsVec;
   }
 
 }
