@@ -361,7 +361,7 @@ public class EasyPredictModelWrapper implements Serializable {
       case WordEmbedding:
         return predictWord2Vec(data);
       case TargetEncoder:
-        return transformWithTargetEncoding(data);
+        return predictTargetEncoding(data);
       case AnomalyDetection:
         return predictAnomalyDetection(data);
       case KLime:
@@ -659,10 +659,7 @@ public class EasyPredictModelWrapper implements Serializable {
       throw new PredictException("Model is not of the expected type, class = " + m.getClass().getSimpleName());
 
     TargetEncoderMojoModel tem = (TargetEncoderMojoModel) this.m;
-    Set<String> teColumnNames = tem._columnNameToIdx.keySet();
-
-    double[] preds = new double[teColumnNames.size()];
-
+    double[] preds = new double[tem.getPredsSize()];
     TargetEncoderPrediction prediction = new TargetEncoderPrediction();
     prediction.transformations = predict(data, 0, preds);
     return prediction;

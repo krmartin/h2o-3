@@ -8,7 +8,6 @@ h2o -- module for using H2O services.
 from __future__ import absolute_import, division, print_function, unicode_literals
 from .utils.compatibility import *  # NOQA
 
-import logging
 import os
 import subprocess
 import tempfile
@@ -31,8 +30,6 @@ from .utils.metaclass import Deprecated as deprecated
 from .utils.config import H2OConfigReader
 from .utils.shared_utils import check_frame_id, gen_header, py_tmp_key, quoted
 from .utils.typechecks import assert_is_type, assert_satisfies, BoundInt, BoundNumeric, I, is_type, numeric, U
-
-logging.basicConfig()
 
 # enable h2o deprecation warnings by default to ensure that users get notified in interactive mode, without being too annoying
 warnings.filterwarnings("once", category=H2ODeprecationWarning)
@@ -300,7 +297,7 @@ def init(url=None, ip=None, port=None, name=None, https=None, cacert=None, insec
         if https:
             raise H2OConnectionError('Starting local server is not available with https enabled. You may start local'
                                      ' instance of H2O with https manually '
-                                     '(http://docs.h2o.ai/h2o/latest-stable/h2o-docs/welcome.html#new-user-quick-start).')
+                                     '(https://docs.h2o.ai/h2o/latest-stable/h2o-docs/welcome.html#new-user-quick-start).')
         hs = H2OLocalServer.start(nthreads=nthreads, enable_assertions=enable_assertions, max_mem_size=mmax,
                                   min_mem_size=mmin, ice_root=ice_root, log_dir=log_dir, log_level=log_level,
                                   max_log_file_size=max_log_file_size, port=port, name=name,

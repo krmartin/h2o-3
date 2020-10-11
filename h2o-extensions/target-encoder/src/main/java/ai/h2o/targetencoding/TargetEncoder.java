@@ -1,9 +1,12 @@
 package ai.h2o.targetencoding;
 
 import ai.h2o.targetencoding.TargetEncoderModel.DataLeakageHandlingStrategy;
+import ai.h2o.targetencoding.TargetEncoderModel.TargetEncoderOutput;
+import ai.h2o.targetencoding.TargetEncoderModel.TargetEncoderParameters;
 import hex.ModelBuilder;
 import hex.ModelCategory;
 import water.DKV;
+import water.Key;
 import water.Scope;
 import water.exceptions.H2OModelBuilderIllegalArgumentException;
 import water.fvec.Frame;
@@ -16,24 +19,29 @@ import java.util.*;
 
 import static ai.h2o.targetencoding.TargetEncoderHelper.*;
 
-public class TargetEncoder extends ModelBuilder<TargetEncoderModel, TargetEncoderModel.TargetEncoderParameters, TargetEncoderModel.TargetEncoderOutput> {
+public class TargetEncoder extends ModelBuilder<TargetEncoderModel, TargetEncoderParameters, TargetEncoderOutput> {
 
   private static final Logger logger = LoggerFactory.getLogger(TargetEncoder.class);
   private TargetEncoderModel _targetEncoderModel;
   private String[] _columnsToEncode;
   
-  public TargetEncoder(TargetEncoderModel.TargetEncoderParameters parms) {
+  public TargetEncoder(TargetEncoderParameters parms) {
     super(parms);
     init(false);
   }
 
+  public TargetEncoder(TargetEncoderParameters parms, Key<TargetEncoderModel> key) {
+    super(parms, key);
+    init(false);
+  }
+
   public TargetEncoder(final boolean startupOnce) {
-    super(new TargetEncoderModel.TargetEncoderParameters(), startupOnce);
+    super(new TargetEncoderParameters(), startupOnce);
   }
 
   @Override
   public void init(boolean expensive) {
-    disableIgnoreConstColsFeature();
+    disableIgnoreConstColsFeature(expensive);
     super.init(expensive);
     assert _parms._nfolds == 0 : "nfolds usage forbidden in TargetEncoder";
     
@@ -42,10 +50,6 @@ public class TargetEncoder extends ModelBuilder<TargetEncoderModel, TargetEncode
       if (_parms._data_leakage_handling == DataLeakageHandlingStrategy.KFold && _parms._fold_column == null)
         error("_fold_column", "Fold column is required when using KFold leakage handling strategy.");
 
-      Vec targetVec = train().vec(_parms._response_column);
-      if (targetVec.cardinality() > 2)
-        error("_response_column", "`target` must be binary. Target encoding does not support multi-class target yet.");
-      
       final List<String> colsToIgnore = Arrays.asList(
               _parms._response_column, 
               _parms._fold_column,
@@ -67,9 +71,9 @@ public class TargetEncoder extends ModelBuilder<TargetEncoderModel, TargetEncode
     }
   }
 
-  private void disableIgnoreConstColsFeature() {
+  private void disableIgnoreConstColsFeature(boolean expensive) {
     _parms._ignore_const_cols = false;
-    if (logger.isInfoEnabled())
+    if (expensive && logger.isInfoEnabled())
       logger.info("We don't want to ignore any columns during target encoding transformation " + 
               "therefore `_ignore_const_cols` parameter was set to `false`");
   }
@@ -84,21 +88,19 @@ public class TargetEncoder extends ModelBuilder<TargetEncoderModel, TargetEncode
         if (error_count() > 0)
           throw H2OModelBuilderIllegalArgumentException.makeFromBuilder(TargetEncoder.this);
 
-        TargetEncoderModel.TargetEncoderOutput emptyOutput =
-                new TargetEncoderModel.TargetEncoderOutput(TargetEncoder.this, new IcedHashMap<>(), Double.NaN);
+        TargetEncoderOutput emptyOutput =
+                new TargetEncoderOutput(TargetEncoder.this, new IcedHashMap<>());
         TargetEncoderModel model = new TargetEncoderModel(dest(), _parms, emptyOutput);
         _targetEncoderModel = model.delete_and_lock(_job); // and clear & write-lock it (smashing any prior)
 
         IcedHashMap<String, Frame> _targetEncodingMap = prepareEncodingMap();
-        // Mean could be computed from any encoding map as response column is shared
-        double priorMean = calculatePriorMean(_targetEncodingMap.entrySet().iterator().next().getValue());
 
         for (Map.Entry<String, Frame> entry : _targetEncodingMap.entrySet()) {
-          Frame frameWithEncodingMap = entry.getValue();
-          Scope.untrack(frameWithEncodingMap.keys());
+          Frame encodings = entry.getValue();
+          Scope.untrack(encodings);
         }
 
-        _targetEncoderModel._output = new TargetEncoderModel.TargetEncoderOutput(TargetEncoder.this, _targetEncodingMap, priorMean);
+        _targetEncoderModel._output = new TargetEncoderOutput(TargetEncoder.this, _targetEncodingMap);
         _job.update(1);
       } catch (Exception e) {
         if (_targetEncoderModel != null) {
@@ -124,6 +126,7 @@ public class TargetEncoder extends ModelBuilder<TargetEncoderModel, TargetEncode
       try {
         int targetIdx = train().find(_parms._response_column);
         int foldColIdx = _parms._fold_column == null ? -1 : train().find(_parms._fold_column);
+        
         //TODO Loosing data here, we should use clustering to assign instances with some reasonable target values.
         workingFrame = filterOutNAsFromTargetColumn(train(), targetIdx);
 
@@ -132,18 +135,20 @@ public class TargetEncoder extends ModelBuilder<TargetEncoderModel, TargetEncode
         for (String columnToEncode : _columnsToEncode) { // TODO: parallelize
           int colIdx = workingFrame.find(columnToEncode);
           imputeCategoricalColumn(workingFrame, colIdx, columnToEncode + NA_POSTFIX);
-          Frame encodingsFrame = buildEncodingsFrame(workingFrame, colIdx, targetIdx, foldColIdx);
+          Frame encodings = buildEncodingsFrame(workingFrame, colIdx, targetIdx, foldColIdx, nclasses());
 
-          Frame finalEncodingsFrame = applyLeakageStrategyToEncodings(
-                  encodingsFrame, 
+          Frame finalEncodings = applyLeakageStrategyToEncodings(
+                  encodings, 
                   columnToEncode, 
                   _parms._data_leakage_handling, 
                   _parms._fold_column
           );
-          DKV.remove(encodingsFrame._key);
-          encodingsFrame = finalEncodingsFrame;
-
-          columnToEncodings.put(columnToEncode, encodingsFrame);
+          encodings.delete();
+          encodings = finalEncodings;
+          if (encodings._key != null) DKV.remove(encodings._key);
+          encodings._key = Key.make(_result.toString()+"_encodings_"+columnToEncode);
+          DKV.put(encodings);
+          columnToEncodings.put(columnToEncode, encodings);
         }
         
         return columnToEncodings;
@@ -165,7 +170,7 @@ public class TargetEncoder extends ModelBuilder<TargetEncoderModel, TargetEncode
             for (long foldValue : foldValues) {
               Frame outOfFoldEncodings = getOutOfFoldEncodings(encodings, foldColumn, foldValue);
               Scope.track(outOfFoldEncodings);
-              Frame tmpEncodings = groupEncodingsByCategory(outOfFoldEncodings, encodingsTEColIdx);
+              Frame tmpEncodings = register(groupEncodingsByCategory(outOfFoldEncodings, encodingsTEColIdx));
               Scope.track(tmpEncodings);
               addCon(tmpEncodings, foldColumn, foldValue); //groupEncodingsByCategory always removes the foldColumn, so we can reuse the same name immediately
 
