@@ -27,6 +27,7 @@ from h2o.expr import ExprNode
 from h2o.group_by import GroupBy
 from h2o.job import H2OJob
 from h2o.utils.config import get_config_value
+from h2o.utils.ext_dependencies import get_matplotlib_pyplot
 from h2o.utils.shared_utils import (_handle_numpy_array, _handle_pandas_data_frame, _handle_python_dicts,
                                     _handle_python_lists, _is_list, _is_str_list, _py_tmp_key, _quoted,
                                     can_use_pandas, quote, normalize_slice, slice_is_normalized, check_frame_id)
@@ -421,26 +422,28 @@ class H2OFrame(Keyed):
 
 
     def _import_parse(self, path, pattern, destination_frame, header, separator, column_names, column_types, na_strings,
-                      skipped_columns=None, custom_non_data_line_markers=None, partition_by=None):
+                      skipped_columns=None, custom_non_data_line_markers=None, partition_by=None, quotechar=None):
         if H2OFrame.__LOCAL_EXPANSION_ON_SINGLE_IMPORT__ and is_type(path, str) and "://" not in path:  # fixme: delete those 2 lines, cf. PUBDEV-5717
             path = os.path.abspath(path)
         rawkey = h2o.lazy_import(path, pattern)
         self._parse(rawkey, destination_frame, header, separator, column_names, column_types, na_strings,
-                    skipped_columns, custom_non_data_line_markers, partition_by)
+                    skipped_columns, custom_non_data_line_markers, partition_by, quotechar)
         return self
 
 
-    def _upload_parse(self, path, destination_frame, header, sep, column_names, column_types, na_strings, skipped_columns=None):
+    def _upload_parse(self, path, destination_frame, header, sep, column_names, column_types, na_strings, skipped_columns=None,
+                      quotechar=None):
         ret = h2o.api("POST /3/PostFile", filename=path)
         rawkey = ret["destination_frame"]
-        self._parse(rawkey, destination_frame, header, sep, column_names, column_types, na_strings, skipped_columns)
+        self._parse(rawkey, destination_frame, header, sep, column_names, column_types, na_strings, skipped_columns,
+                    quotechar=quotechar)
         return self
 
 
     def _parse(self, rawkey, destination_frame="", header=None, separator=None, column_names=None, column_types=None,
-               na_strings=None, skipped_columns=None, custom_non_data_line_markers=None, partition_by=None):
+               na_strings=None, skipped_columns=None, custom_non_data_line_markers=None, partition_by=None, quotechar=None):
         setup = h2o.parse_setup(rawkey, destination_frame, header, separator, column_names, column_types, na_strings,
-                                skipped_columns, custom_non_data_line_markers, partition_by)
+                                skipped_columns, custom_non_data_line_markers, partition_by, quotechar)
         return self._parse_raw(setup)
 
 
@@ -449,7 +452,6 @@ class H2OFrame(Keyed):
         p = {"destination_frame": None,
              "parse_type": None,
              "separator": None,
-             "single_quotes": None,
              "check_header": None,
              "number_columns": None,
              "chunk_size": None,
@@ -2184,8 +2186,32 @@ class H2OFrame(Keyed):
         >>> iris = h2o.import_file("http://h2o-public-test-data.s3.amazonaws.com/smalldata/iris/iris_wheader.csv")
         >>> iris.get_frame_data()
         """
-        return h2o.api("GET /3/DownloadDataset", data={"frame_id": self.frame_id, "hex_string": False, "escape_quotes" : True})
+        return h2o.api(
+            "GET /3/DownloadDataset", 
+            data={"frame_id": self.frame_id, "hex_string": False, "escape_quotes": True}
+        )
 
+    def save(self, path, force=True):
+        """
+        Store frame data in H2O's native format.
+
+        This will store this frame's data to a file-system location in H2O's native binary format. Stored data can be
+        loaded only with a cluster of the same size and same version the the one which wrote the data. The provided
+        directory must be accessible from all nodes (HDFS, NFS). 
+        
+        :param path: a filesystem location where to write frame data
+        :param force: overwrite already existing files (defaults to true)
+        :returns: Frame data as a string in csv format.
+        
+        :examples:
+        
+        >>> iris = h2o.import_file("http://h2o-public-test-data.s3.amazonaws.com/smalldata/iris/iris_wheader.csv")
+        >>> iris.save("hdfs://namenode/h2o_data")
+        """
+        H2OJob(h2o.api(
+            "POST /3/Frames/%s/save" % self.frame_id, 
+            data={"dir": path, "force": force}
+        ), "Save frame data").poll()
 
     def __getitem__(self, item):
         """
@@ -3764,6 +3790,7 @@ class H2OFrame(Keyed):
         >>> iris.describe()
         >>> iris[0].hist(breaks=5,plot=False)
         """
+        import matplotlib
         server = kwargs.pop("server") if "server" in kwargs else False
         assert_is_type(breaks, int, [numeric], Enum("sturges", "rice", "sqrt", "doane", "fd", "scott"))
         assert_is_type(plot, bool)
@@ -3773,14 +3800,8 @@ class H2OFrame(Keyed):
         hist = H2OFrame._expr(expr=ExprNode("hist", self, breaks))._frame()
 
         if plot:
-            try:
-                import matplotlib
-                if server:
-                    matplotlib.use("Agg")
-                import matplotlib.pyplot as plt
-            except ImportError:
-                print("ERROR: matplotlib is required to make the histogram plot. "
-                      "Set `plot` to False, if a plot is not desired.")
+            plt = get_matplotlib_pyplot(server)
+            if plt is None:
                 return
 
             hist["widths"] = hist["breaks"].difflag1()

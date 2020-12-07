@@ -461,13 +461,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
       long xs = 0x600DL;
       int count = 0;
       Field[] fields = Weaver.getWovenFields(this.getClass());
-      Arrays.sort(fields,
-              new Comparator<Field>() {
-                public int compare(Field field1, Field field2) {
-                  return field1.getName().compareTo(field2.getName());
-                }
-              });
-
+      Arrays.sort(fields, Comparator.comparing(Field::getName));
       for (Field f : fields) {
         if (ignoredFields != null && ignoredFields.contains(f.getName())) {
           // Do not include ignored fields in the final hash
@@ -507,7 +501,10 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
           try {
             f.setAccessible(true);
             Object value = f.get(this);
-            if (value != null) {
+            if (value instanceof Enum) {
+              // use string hashcode for enums, otherwise the checksum would be different each run
+              xs = xs * P + (long)(value.toString().hashCode());
+            } else if (value != null) {
               xs = xs * P + (long)(value.hashCode());
             } else {
               xs = xs * P + P;
@@ -520,6 +517,55 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
       }
       xs ^= (train() == null ? 43 : train().checksum()) * (valid() == null ? 17 : valid().checksum());
       return xs;
+    }
+    
+    private void addToUsedIfColumn(Set<String> usedColumns, Set<String> allColumns, String value) {
+      if (value == null) return;
+      if (allColumns.contains(value)) {
+        usedColumns.add(value);
+      }
+    }
+
+    /**
+     * Looks for all String parameters with the word 'column' in the parameter name, if
+     * the parameter value is present in supplied array of strings, it will be added to the
+     * returned set of used columns.
+     * 
+     * @param trainNames names of columns in the training frame
+     * @return set of names of columns present in the params as well as the training frame names
+     */
+    public Set<String> getUsedColumns(final String[] trainNames) {
+      final Set<String> trainColumns = new HashSet<>(Arrays.asList(trainNames));
+      final Set<String> usedColumns = new HashSet<>();
+      final Field[] fields = Weaver.getWovenFields(this.getClass());
+      for (Field f : fields) {
+        if (f.getName().equals("_ignored_columns") || !f.getName().toLowerCase().contains("column")) continue;
+        Class<?> c = f.getType();
+        if (c.isArray()) {
+          try {
+            f.setAccessible(true);
+            if (f.get(this) != null && c.getComponentType() == String.class) {
+              String[] values = (String[]) f.get(this);
+              for (String v : values) {
+                addToUsedIfColumn(usedColumns, trainColumns, v);
+              }
+            }
+          } catch (IllegalAccessException e) {
+            throw new RuntimeException(e);
+          }
+        } else {
+          try {
+            f.setAccessible(true);
+            Object value = f.get(this);
+            if (value instanceof String) {
+              addToUsedIfColumn(usedColumns, trainColumns, (String) value);
+            }
+          } catch (IllegalAccessException e) {
+            throw new RuntimeException(e);
+          }
+        }
+      }
+      return usedColumns;
     }
   }
 
@@ -2454,7 +2500,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
             FileOutputStream os = new FileOutputStream(ss.getFilename());
             ss.getStreamWriter().writeTo(os);
             os.close();
-            genmodel = MojoModel.load(filename);
+            genmodel = MojoModel.load(filename, true);
             features = MemoryManager.malloc8d(genmodel._names.length);
           } catch (IOException e1) {
             e1.printStackTrace();

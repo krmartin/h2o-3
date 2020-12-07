@@ -54,7 +54,8 @@ assign("LOG_FILE_NAME", NULL,  .pkg.env)
                    data.frame(type = "character", scalar = FALSE,  row.names = "VecSpecifier[]", stringsAsFactors = FALSE),
                    data.frame(type = "list",      scalar = FALSE, row.names = "KeyValue[]",   stringsAsFactors = FALSE),
                    data.frame(type = "list",      scalar = FALSE, row.names = "StringPair[]", stringsAsFactors = FALSE),
-                   data.frame(type = "list",        scalar = FALSE, row.names = "Key<Keyed>[]", stringsAsFactors = FALSE))
+                   data.frame(type = "list",      scalar = FALSE, row.names = "Key<Keyed>[]", stringsAsFactors = FALSE),
+                   data.frame(type = "list",      scalar = FALSE, row.names = "string[][]",   stringsAsFactors = FALSE))
 
 #' Capabilities endpoints
 .h2o.__ALL_CAPABILITIES  <- "Capabilities"
@@ -139,6 +140,11 @@ assign("LOG_FILE_NAME", NULL,  .pkg.env)
 .h2o.__LOAD_MODEL <- "Models.bin/"
 .h2o.__UPLOAD_MODEL <- "Models.upload.bin/"
 
+# Export/Import Frame Endpoints
+.h2o.__SAVE_FRAME <- function(frame_id) paste0("Frames/", frame_id, "/save")
+.h2o.__LOAD_FRAME <- "Frames/load"
+
+
 # Grid search 
 .h2o.__GRID <- function(algo) paste0("Grid/", algo)
 .h2o.__GRIDS <- function(grid_id, sort_by, decreasing) {
@@ -155,3 +161,7 @@ assign("LOG_FILE_NAME", NULL,  .pkg.env)
          url
     }
 }
+
+# Client version of R package
+.h2o.__CLIENT_VERSION_FILENAME <- "client_info.txt"
+.h2o.__CLIENT_VERSION <- function() {return(file.exists(paste0(path.package("h2o", quiet = FALSE), .Platform$file.sep, .h2o.__CLIENT_VERSION_FILENAME)))}

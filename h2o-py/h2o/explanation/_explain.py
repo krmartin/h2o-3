@@ -9,13 +9,8 @@ import numpy as np
 import matplotlib
 import matplotlib.colors
 import matplotlib.figure
+from h2o.utils.ext_dependencies import get_matplotlib_pyplot
 
-try:
-    import matplotlib.pyplot as plt
-except ImportError:
-    # Possibly failed due to missing tkinter in old matplotlib in python 2.7
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
 
 
 def _display(object):
@@ -24,6 +19,7 @@ def _display(object):
     :param object: An object to be displayed.
     :returns: the input
     """
+    plt = get_matplotlib_pyplot(False, raise_if_not_available=True)
     if isinstance(object, matplotlib.figure.Figure) and matplotlib.get_backend().lower() != "agg":
         plt.show()
     else:
@@ -44,6 +40,7 @@ def _dont_display(object):
     :param object: that should not be displayed
     :returns: input
     """
+    plt = get_matplotlib_pyplot(False, raise_if_not_available=True)
     if isinstance(object, matplotlib.figure.Figure):
         plt.close()
     return object
@@ -577,7 +574,7 @@ def shap_summary_plot(
     >>> # Create SHAP summary plot
     >>> gbm.shap_summary_plot(test)
     """
-
+    plt = get_matplotlib_pyplot(False, raise_if_not_available=True)
     blue_to_red = matplotlib.colors.LinearSegmentedColormap.from_list("blue_to_red",
                                                                       ["#00AAEE", "#FF1166"])
 
@@ -705,7 +702,7 @@ def shap_explain_row_plot(
     >>> # Create SHAP row explanation plot
     >>> gbm.shap_explain_row_plot(test, row_index=0)
     """
-
+    plt = get_matplotlib_pyplot(False, raise_if_not_available=True)
     row = frame[row_index, :]
     with no_progress():
         contributions = NumpyFrame(model.predict_contributions(row))
@@ -870,6 +867,7 @@ def _add_histogram(frame, column, add_rug=True, add_histogram=True, levels_order
     :param add_histogram: if True, adds histogram
     :returns: None
     """
+    plt = get_matplotlib_pyplot(False, raise_if_not_available=True)
     ylims = plt.ylim()
     nf = NumpyFrame(frame[column])
 
@@ -889,17 +887,19 @@ def _add_histogram(frame, column, add_rug=True, add_histogram=True, levels_order
             cnt = Counter(nf[column][np.isfinite(nf[column])])
             hist_x = np.array(list(cnt.keys()), dtype=float)
             hist_y = np.array(list(cnt.values()), dtype=float)
+            width = 1
         else:
             hist_y, hist_x = np.histogram(
                 mapping(nf[column][np.isfinite(nf[column])]),
                 bins=20)
             hist_x = hist_x[:-1].astype(float)
             hist_y = hist_y.astype(float)
+            width = hist_x[1] - hist_x[0]
         plt.bar(mapping(hist_x),
                 hist_y / hist_y.max() * ((ylims[1] - ylims[0]) / 1.618),  # ~ golden ratio
                 bottom=ylims[0],
                 align="center" if nf.isfactor(column) else "edge",
-                width=hist_x[1] - hist_x[0], color="gray", alpha=0.2)
+                width=width, color="gray", alpha=0.2)
     if nf.isfactor(column):
         plt.xticks(mapping(range(nf.nlevels(column))), nf.levels(column))
     plt.ylim(ylims)
@@ -957,6 +957,7 @@ def pd_plot(
     >>> # Create partial dependence plot
     >>> gbm.pd_plot(test, column="alcohol")
     """
+    plt = get_matplotlib_pyplot(False, raise_if_not_available=True)
     is_factor = frame[column].isfactor()[0]
     if is_factor:
         if frame[column].nlevels()[0] > max_levels:
@@ -1078,6 +1079,7 @@ def pd_multi_plot(
     >>> # Create a partial dependence plot
     >>> aml.pd_multi_plot(test, column="alcohol")
     """
+    plt = get_matplotlib_pyplot(False, raise_if_not_available=True)
     if target is not None:
         if isinstance(target, (list, tuple)):
             if len(target) > 1:
@@ -1212,6 +1214,7 @@ def ice_plot(
     >>> # Create the individual conditional expectations plot
     >>> gbm.ice_plot(test, column="alcohol")
     """
+    plt = get_matplotlib_pyplot(False, raise_if_not_available=True)
     if target is not None:
         if isinstance(target, (list, tuple)):
             if len(target) > 1:
@@ -1459,6 +1462,7 @@ def varimp_heatmap(
     >>> # Create the variable importance heatmap
     >>> aml.varimp_heatmap()
     """
+    plt = get_matplotlib_pyplot(False, raise_if_not_available=True)
     if isinstance(models, h2o.automl._base.H2OAutoMLBaseMixin):
         model_ids = [model_id[0] for model_id in models.leaderboard[:, "model_id"]
             .as_data_frame(use_pandas=False, header=False) if _has_varimp(model_id[0])]
@@ -1554,6 +1558,7 @@ def model_correlation_heatmap(
     >>> # Create the model correlation heatmap
     >>> aml.model_correlation_heatmap(test)
     """
+    plt = get_matplotlib_pyplot(False, raise_if_not_available=True)
     if isinstance(models, h2o.automl._base.H2OAutoMLBaseMixin):
         model_ids = [model_id[0] for model_id in models.leaderboard[:, "model_id"]
             .as_data_frame(use_pandas=False, header=False)]
@@ -1658,6 +1663,7 @@ def residual_analysis_plot(
     >>> # Create the residual analysis plot
     >>> gbm.residual_analysis_plot(test)
     """
+    plt = get_matplotlib_pyplot(False, raise_if_not_available=True)
     _, y = _get_xy(model)
 
     with no_progress():
@@ -1952,6 +1958,7 @@ def explain(
     >>> # Create the leader model explanation
     >>> aml.leader.explain(test)
     """
+    plt = get_matplotlib_pyplot(False, raise_if_not_available=True)
     is_aml, models_to_show, classification, multinomial_classification, multiple_models, \
     targets, tree_models_to_show = _process_models_input(models, frame)
 

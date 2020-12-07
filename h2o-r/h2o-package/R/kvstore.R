@@ -47,12 +47,12 @@ h2o.ls <- function() {
 #' Remove All Objects on the H2O Cluster
 #'
 #' Removes the data from the h2o cluster, but does not remove the local references.
-#' Retains frames and vectors specified in retained_elements argument.
-#' Retained keys must be keys of models and frames only. For models retained, training and validation frames are retained as well.
+#' Retains models, frames and vectors specified in retained_elements argument.
+#' Retained elements must be instances/ids of models and frames only. For models retained, training and validation frames are retained as well.
 #' Cross validation models of a retained model are NOT retained automatically, those must be specified explicitely.
 #'
 #' @param timeout_secs Timeout in seconds. Default is no timeout.
-#' @param retained_elements Frames and vectors to be retained. Other keys provided are ignored.
+#' @param retained_elements Instances or ids of models and frames to be retained. Combination of instances and ids in the same list is also a valid input.
 #' @seealso \code{\link{h2o.rm}}
 #' @examples
 #' \dontrun{
@@ -76,6 +76,10 @@ h2o.removeAll <- function(timeout_secs=0, retained_elements = c()) {
         retained_keys <- append(retained_keys, element@model_id)
       } else if (is.H2OFrame(element)) {
         retained_keys <- append(retained_keys, h2o.getId(element))
+      } else if( is.character(element) ) {
+        retained_keys <- append(retained_keys, element)
+      } else {
+        stop("The 'retained_elements' variable must be either an instance of H2OModel/H2OFrame or an id of H2OModel/H2OFrame.")
       }
     }
     
@@ -122,7 +126,7 @@ h2o.rm <- function(ids, cascade=TRUE) {
     } else if( is.character(xi) ) {
       .h2o.__remoteSend(paste0(.h2o.__DKV, "/",xi), method = "DELETE", .params=list(cascade=cascade))
     } else {
-      stop("input to h2o.rm must be a Keyed instance (e.g. H2OFrame, H2OModel) or character")
+      stop("Input to h2o.rm must be either an instance of H2OModel/H2OFrame or a character")
     }
   }
 
@@ -168,6 +172,28 @@ h2o.getFrame <- function(id) {
   fr <- .newH2OFrame(id,id,-1,-1)
   .fetch.data(fr,1L)
   fr
+}
+
+#' Get an list of all model ids present in the cluster
+#'
+#' @return Returns a vector of model ids.
+#' @examples
+#' \dontrun{
+#' library(h2o)
+#' h2o.init()
+#'
+#' iris_hf <- as.h2o(iris)
+#' model_id <- h2o.gbm(x = 1:4, y = 5, training_frame = iris_hf)@@model_id
+#' model_id_list <- h2o.list_models()
+#' }
+#' @export
+h2o.list_models <- function() {
+    models_json <- .h2o.__remoteSend(method = "GET", paste0(.h2o.__MODELS))$models
+    res <- NULL
+    for (json in models_json) {
+        res <- c(res, json$model_id$name)
+    }
+    res
 }
 
 #' Get an R reference to an H2O model

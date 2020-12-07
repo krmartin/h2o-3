@@ -6,6 +6,7 @@ import hex.glm.GLM;
 import hex.glm.GLMModel;
 import hex.tree.SharedTree;
 import hex.tree.SharedTreeModel;
+import hex.tree.TreeStats;
 import hex.tree.drf.DRF;
 import hex.tree.drf.DRFModel;
 import hex.tree.gbm.GBM;
@@ -85,6 +86,7 @@ public class RuleFit extends ModelBuilder<RuleFitModel, RuleFitModel.RuleFitPara
 
             initTreeParameters();
             initGLMParameters();
+            ignoreBadColumns(separateFeatureVecs(), true);
         }
         //   if (_train == null) return;
         // if (expensive && error_count() == 0) checkMemoryFootPrint();
@@ -174,6 +176,8 @@ public class RuleFit extends ModelBuilder<RuleFitModel, RuleFitModel.RuleFitPara
             GLMModel glmModel;
             List<Rule> rulesList;
             RuleEnsemble ruleEnsemble = null;
+            int ntrees = 0;
+            TreeStats overallTreeStats = new TreeStats();
             init(true);
             if (error_count() > 0)
                 throw H2OModelBuilderIllegalArgumentException.makeFromBuilder(RuleFit.this);
@@ -181,7 +185,8 @@ public class RuleFit extends ModelBuilder<RuleFitModel, RuleFitModel.RuleFitPara
             try {
                 // linearTrain = frame to be used as _train for GLM in 2., will be filled in 1.
                 Frame linearTrain = new Frame(Key.make("paths_frame" + _result));
-                
+                // store train frame without bad columns to pass it to tree model builders
+                Frame trainAdapted = new Frame(_train);
                 // 1. Rule generation
         
                 // get paths from tree models
@@ -189,6 +194,8 @@ public class RuleFit extends ModelBuilder<RuleFitModel, RuleFitModel.RuleFitPara
                 
                 // prepare rules
                 if (RuleFitModel.ModelType.RULES_AND_LINEAR.equals(_parms._model_type) || RuleFitModel.ModelType.RULES.equals(_parms._model_type)) {
+                    DKV.put(trainAdapted._key, trainAdapted);
+                    treeParameters._train = trainAdapted._key;
                     long startAllTreesTime = System.nanoTime();
                     SharedTree<?, ?, ?>[] builders = ModelBuilderHelper.trainModelsParallel(
                             makeTreeModelBuilders(_parms._algorithm, depths), nTreeEnsemblesInParallel(depths.length));
@@ -198,7 +205,9 @@ public class RuleFit extends ModelBuilder<RuleFitModel, RuleFitModel.RuleFitPara
                         SharedTreeModel<?, ?, ?> treeModel = builders[modelId].get();
                         long endModelTime = System.nanoTime() - startModelTime;
                         LOG.info("Tree model n." + modelId + " trained in " + ((double)endModelTime) / 1E9 + "s.");
-                        rulesList.addAll(Rule.extractRulesListFromModel(treeModel, modelId));
+                        rulesList.addAll(Rule.extractRulesListFromModel(treeModel, modelId, nclasses()));
+                        overallTreeStats.mergeWith(treeModel._output._treeStats);
+                        ntrees += treeModel._output._ntrees;
                         treeModel.delete();
                     }
                     long endAllTreesTime = System.nanoTime() - startAllTreesTime;
@@ -241,6 +250,7 @@ public class RuleFit extends ModelBuilder<RuleFitModel, RuleFitModel.RuleFitPara
                 DKV.put(glmModel);
 
                 DKV.remove(linearTrain._key);
+                DKV.remove(trainAdapted._key);
                 
                 model = new RuleFitModel(dest(), _parms, new RuleFitModel.RuleFitOutput(RuleFit.this), glmModel, ruleEnsemble);
                 
@@ -251,6 +261,8 @@ public class RuleFit extends ModelBuilder<RuleFitModel, RuleFitModel.RuleFitPara
 
                 // TODO: add here coverage_count and coverage percent
                 model._output._rule_importance = convertRulesToTable(getRules(glmModel.coefficients(), ruleEnsemble));
+                
+                model._output._model_summary = generateSummary(glmModel, ruleEnsemble.size(), overallTreeStats, ntrees);
 
                 fillModelMetrics(model, glmModel);
 
@@ -379,11 +391,15 @@ public class RuleFit extends ModelBuilder<RuleFitModel, RuleFitModel.RuleFitPara
 
         double[] getIntercept(GLMModel glmModel) {
             HashMap<String, Double> glmCoefficients = glmModel.coefficients();
+            double[] intercept = nclasses() > 2 ? new double[nclasses()] : new double[1];
+            int i = 0;
             for (Map.Entry<String, Double> coefficient : glmCoefficients.entrySet()) {
-                if ("Intercept".equals(coefficient.getKey()))
-                    return new double[]{coefficient.getValue()};
+                if ("Intercept".equals(coefficient.getKey()) || coefficient.getKey().contains("Intercept_")) {
+                    intercept[i] = coefficient.getValue();
+                    i++;
+                }
             }
-            return new double[]{};
+            return intercept;
         }
 
 
@@ -391,7 +407,7 @@ public class RuleFit extends ModelBuilder<RuleFitModel, RuleFitModel.RuleFitPara
             // extract variable-coefficient map (filter out intercept and zero betas)
             Map<String, Double> filteredRules = glmCoefficients.entrySet()
                     .stream()
-                    .filter(e -> !"Intercept".equals(e.getKey()) && 0 != e.getValue())
+                    .filter(e -> !("Intercept".equals(e.getKey()) || e.getKey().contains("Intercept_")) && 0 != e.getValue())
                     .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
             
             List<Rule> rules = new ArrayList<>();
@@ -447,6 +463,62 @@ public class RuleFit extends ModelBuilder<RuleFitModel, RuleFitModel.RuleFitPara
         } else {
             return nModelsInParallel(numDepths, 1);
         }
+    }
+
+    TwoDimTable generateSummary(GLMModel glmModel, int ruleEnsembleSize, TreeStats overallTreeStats, int ntrees) {
+        List<String> colHeaders = new ArrayList<>();
+        List<String> colTypes = new ArrayList<>();
+        List<String> colFormats = new ArrayList<>();
+
+        TwoDimTable glmModelSummary = glmModel._output._model_summary;
+        String[] glmColHeaders = glmModelSummary.getColHeaders();
+        String[] glmColTypes = glmModelSummary.getColTypes();
+        String[] glmColFormats = glmModelSummary.getColFormats();
+        // linear model info
+        for (int i = 0; i < glmModelSummary.getColDim(); i++) {
+            if (!"Training Frame".equals(glmColHeaders[i])) {
+                colHeaders.add(glmColHeaders[i]);
+                colTypes.add(glmColTypes[i]);
+                colFormats.add(glmColFormats[i]);
+            }
+        }
+        // rule ensemble info
+        colHeaders.add("Rule Ensemble Size"); colTypes.add("long"); colFormats.add("%d");
+        // trees info
+        colHeaders.add("Number of Trees"); colTypes.add("long"); colFormats.add("%d");
+        colHeaders.add("Number of Internal Trees"); colTypes.add("long"); colFormats.add("%d");
+        colHeaders.add("Min. Depth"); colTypes.add("long"); colFormats.add("%d");
+        colHeaders.add("Max. Depth"); colTypes.add("long"); colFormats.add("%d");
+        colHeaders.add("Mean Depth"); colTypes.add("double"); colFormats.add("%.5f");
+        colHeaders.add("Min. Leaves"); colTypes.add("long"); colFormats.add("%d");
+        colHeaders.add("Max. Leaves"); colTypes.add("long"); colFormats.add("%d");
+        colHeaders.add("Mean Leaves"); colTypes.add("double"); colFormats.add("%.5f");
+
+        final int rows = 1;
+        TwoDimTable summary = new TwoDimTable(
+                "Rulefit Model Summary", null,
+                new String[rows],
+                colHeaders.toArray(new String[0]),
+                colTypes.toArray(new String[0]),
+                colFormats.toArray(new String[0]),
+                "");
+        int col = 0, row = 0;
+        for (int i = 0; i < glmModelSummary.getColDim(); i++) {
+            if (!"Training Frame".equals(glmColHeaders[i])) {
+                summary.set(row, col++, glmModelSummary.get(row, i));
+            }
+        }
+        summary.set(row, col++, ruleEnsembleSize);
+        summary.set(row, col++, ntrees);
+        summary.set(row, col++, overallTreeStats._num_trees); //internal number of trees (more for multinomial)
+        summary.set(row, col++, overallTreeStats._min_depth);
+        summary.set(row, col++, overallTreeStats._max_depth);
+        summary.set(row, col++, overallTreeStats._mean_depth);
+        summary.set(row, col++, overallTreeStats._min_leaves);
+        summary.set(row, col++, overallTreeStats._max_leaves);
+        summary.set(row, col++, overallTreeStats._mean_leaves);
+
+        return summary;
     }
 }
 

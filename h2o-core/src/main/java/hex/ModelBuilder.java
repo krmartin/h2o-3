@@ -272,8 +272,10 @@ abstract public class ModelBuilder<M extends Model<M,P,O>, P extends Model.Param
     public final void computeParameters() {
       M model = _result.get();
       if (model != null) {
-        //set input parameters
+        model.write_lock(_job);
         model.setInputParms(_input_parms);
+        model.update(_job);
+        model.unlock(_job);
       }
     }
   }
@@ -367,9 +369,6 @@ abstract public class ModelBuilder<M extends Model<M,P,O>, P extends Model.Param
                         public void compute2() {
                           computeCrossValidation();
                           tryComplete();
-                          if (_modelBuilderListener != null) {
-                            _modelBuilderListener.onModelSuccess(_job.get());
-                          }
                         }
                         @Override
                         public boolean onExceptionalCompletion(Throwable ex, CountedCompleter caller) {
@@ -378,9 +377,6 @@ abstract public class ModelBuilder<M extends Model<M,P,O>, P extends Model.Param
                             Keyed.remove(_job._result); //ensure there's no incomplete model left for manipulation after crash or cancellation
                           } catch (Exception logged) {
                             Log.warn("Exception thrown when removing result from job "+ _job._description, logged);
-                          }
-                          if (_modelBuilderListener != null) {
-                            _modelBuilderListener.onModelFailure(ex, _parms);
                           }
                           return true;
                         }
@@ -1248,11 +1244,15 @@ abstract public class ModelBuilder<M extends Model<M,P,O>, P extends Model.Param
 
     // Drop explicitly dropped columns
     if( _parms._ignored_columns != null ) {
-      _train.remove(_parms._ignored_columns);
-      if( expensive ) Log.info("Dropping ignored columns: "+Arrays.toString(_parms._ignored_columns));
+      Set<String> ignoreColumnSet = new HashSet<>(Arrays.asList(_parms._ignored_columns));
+      Collection<String> usedColumns = _parms.getUsedColumns(tr._names);
+      ignoreColumnSet.removeAll(usedColumns);
+      String[] actualIgnoredColumns = ignoreColumnSet.toArray(new String[0]);
+      _train.remove(actualIgnoredColumns);
+      if (expensive) Log.info("Dropping ignored columns: " + Arrays.toString(actualIgnoredColumns));
     }
 
-    if(_parms._checkpoint != null){
+    if(_parms._checkpoint != null) {
       if(DKV.get(_parms._checkpoint) == null){
           error("_checkpoint", "Checkpoint has to point to existing model!");
       }
@@ -1412,8 +1412,6 @@ abstract public class ModelBuilder<M extends Model<M,P,O>, P extends Model.Param
                   _parms._weights_column != null ? _train.vec(_parms._weights_column) : v.makeCon(1.0),
                   _train.vec(_parms._response_column));
           double[] meanWeightedResponse  = mrplt.meanWeightedResponse;
-//          for (int i=0;i<len;++i)
-//            Log.info(v.domain()[i] + " -> " + meanWeightedResponse[i]);
 
           // Option 1: Order the categorical column by response to make better splits
           int[] idx=new int[len];
@@ -1425,8 +1423,6 @@ abstract public class ModelBuilder<M extends Model<M,P,O>, P extends Model.Param
           String[] newDomain = new String[len];
           for (int i = 0; i < len; ++i) newDomain[i] = v.domain()[idx[i]];
           vNew.setDomain(newDomain);
-//          for (int i=0;i<len;++i)
-//            Log.info(vNew.domain()[i] + " -> " + meanWeightedResponse[idx[i]]);
           vecs[j] = vNew;
           restructured = true;
         }
